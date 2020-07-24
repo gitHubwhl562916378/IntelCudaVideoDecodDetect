@@ -10,7 +10,7 @@
   * Architecture 选择64bit
   * Linking Dev下载一次，Shared和Static选一个下载；我的工程是使用的Shared
 * nvidia独立显卡
-  * 驱动版本436.15或以上
+  * 驱动版本436.15或以上[https://www.nvidia.cn/Download/index.aspx?lang=cn](https://www.nvidia.cn/Download/index.aspx?lang=cn)
 * cpu
   * 建议i5及以上
   * 带核显，需要将显示器接到核显。本程序接到独显，qsv解码会失败
