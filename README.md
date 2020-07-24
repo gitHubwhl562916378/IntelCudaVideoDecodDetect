@@ -30,3 +30,7 @@
 * 将videowidget.cpp中connect(m_decoThr,SIGNAL(sigFrameLoaded()),this,SLOT(update()));去掉即可去掉视频显示
 * 将ffmpegqsvdecode.cpp，ffmpegqsvdecode.cpp中的av_image_copy_to_buffer去掉可以去掉拷贝
 * 下载GPU-Z可以观察硬件运行情况
+
+## 其它
+* 根目录下的IntelCudaVideoDecodDetect.rar为编译好的可执行包，可以直接运行不用配置环境编译
+* 根目录下有一个“解码性能报告.xlsx”可供参考
