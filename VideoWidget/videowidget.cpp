@@ -45,6 +45,7 @@ void VideoWidget::startPlay(QString url, QString decodeName)
     connect(m_decoThr,SIGNAL(sigVideoStarted(uchar*,int,int,int)),this,SLOT(slotVideoStarted(uchar*,int,int,int)));
     connect(m_decoThr,SIGNAL(sigCurFpsChanged(int)), this, SIGNAL(sigCurFpsChanged(int)));
     connect(m_decoThr,SIGNAL(sigFrameLoaded()),this,SLOT(update()));
+//    connect(m_decoThr, &DecodeTask::sigFrameLoaded,this, [&]{});
     connect(m_decoThr,SIGNAL(sigError(QString)),this,SIGNAL(sigError(QString)));
     connect(m_decoThr,SIGNAL(finished()),this,SLOT(stop()));
     m_decoThr->startPlay(url);

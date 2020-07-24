@@ -267,6 +267,7 @@ int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet,
             emit sigVideoStarted(buffer_, swFrame->format, swFrame->width, swFrame->height);
             isDecodeStarted_ = true;
         }
+        //gpu拷贝到cpu，相对耗时
         ret = av_image_copy_to_buffer(buffer_, bufferSize_,
                     (const uint8_t * const *)swFrame->data,
                     (const int *)swFrame->linesize, AVPixelFormat(swFrame->format),
