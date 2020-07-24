@@ -34,3 +34,4 @@
 ## 其它
 * 根目录下的IntelCudaVideoDecodDetect.rar为编译好的可执行包，可以直接运行不用配置环境编译
 * 根目录下有一个“解码性能报告.xlsx”可供参考
+* intelmedia-sdk下载需要注册，根目录下有下载好的
