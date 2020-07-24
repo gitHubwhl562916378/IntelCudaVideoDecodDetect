@@ -5,7 +5,7 @@
 一个使用ffmpeg硬解码的测试工具，加入了Qt显示，用于测量解码性能;目前包括cuda和qsv解码。
 测量时可关闭显示，观看帧率以判断解码性能
 
-##编译环境
+## 编译环境
 
 * windows 64bit
 * ffmpeg-4.3 [https://ffmpeg.zeranoe.com/builds/](https://ffmpeg.zeranoe.com/builds/)
@@ -22,13 +22,13 @@
 * Qt
   * 低版本注意配置qopenglwidget，高版本不用配置
 
-##编译
+## 编译
 
 * 打开.pro，选择64bit。
 * 配置ffmpeg的头文件和库文件路径
 * 编译
 
-##运行
+## 运行
 
 * 默认为带视频显示，地址栏输入rtsp地址。先在vlc中播放，确保视频正常
 * 每次play，会依次在下面窗口播放视频
