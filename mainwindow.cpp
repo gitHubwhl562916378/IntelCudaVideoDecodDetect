@@ -12,7 +12,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     playBtn_ = new QPushButton("play");
     //rtsp://192.168.2.66/mclz_cooking.mp4
-    urlEdit_ = new QLineEdit("rtsp://192.168.2.66/person.avi");
+    urlEdit_ = new QLineEdit("screen.mp4");
     decoderBox_ = new QComboBox;
     gridLay_ = new QGridLayout;
     dCheck_ = new QCheckBox("auto transform");

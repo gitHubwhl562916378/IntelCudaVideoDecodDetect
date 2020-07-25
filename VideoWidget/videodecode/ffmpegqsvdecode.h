@@ -26,8 +26,9 @@ private:
     bool isDecodeStarted_ = false;
     uint8_t *buffer_ = nullptr;
     int bufferSize_ = 0, fps_ = 0, curFps_ = 0;
-    qint64 start_pt_ = 0;
+    qint64 start_pt_ = 0, last_pts_ = AV_NOPTS_VALUE;
     int decode_frames_ = 0;
+    AVRational stream_time_base_;
 };
 
 #endif // FFMPEGQSVDECODE_H

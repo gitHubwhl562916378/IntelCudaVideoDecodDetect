@@ -141,6 +141,7 @@ void FFmpegCudaDecode::run()
 
     int vden = video->avg_frame_rate.den,vnum = video->avg_frame_rate.num;
     fps_ = vnum/vden;
+    stream_time_base_ = video->time_base;
 
     pCodecCtx->get_format = get_cuda_hw_format;
 
@@ -252,6 +253,22 @@ int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet,
             errorMsg = QString("Error transferring the data to system memory: %1").arg(errorbuf);
             emit sigError(errorMsg);
             goto fail;
+        }
+        swFrame->pts =  pFrame->best_effort_timestamp;
+        if(swFrame->pts != AV_NOPTS_VALUE)
+        {
+            if(last_pts_ != AV_NOPTS_VALUE)
+            {
+                AVRational ra;
+                ra.num = 1;
+                ra.den = AV_TIME_BASE;
+                int64_t delay = av_rescale_q(swFrame->pts - last_pts_, stream_time_base_, ra);
+                if(delay > 0 && delay < 1000000)
+                {
+                    QThread::usleep(delay);
+                }
+            }
+            last_pts_ = swFrame->pts;
         }
         if(!isDecodeStarted_)
         {

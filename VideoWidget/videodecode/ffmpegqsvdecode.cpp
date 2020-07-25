@@ -238,7 +238,22 @@ int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, 
             emit sigError(errorMsg);
             goto fail;
         }
-
+        sw_frame->pts =  frame->best_effort_timestamp;
+        if(sw_frame->pts != AV_NOPTS_VALUE)
+        {
+            if(last_pts_ != AV_NOPTS_VALUE)
+            {
+                AVRational ra;
+                ra.num = 1;
+                ra.den = AV_TIME_BASE;
+                int64_t delay = av_rescale_q(sw_frame->pts - last_pts_, stream_time_base_, ra);
+                if(delay > 0 && delay < 1000000)
+                {
+                    QThread::usleep(delay);
+                }
+            }
+            last_pts_ = sw_frame->pts;
+        }
         if(!isDecodeStarted_)
         {
             bufferSize_ = av_image_get_buffer_size(AVPixelFormat(sw_frame->format), sw_frame->width,
