@@ -4,6 +4,7 @@ extern "C"
 }
 #include "ffmpegcudadecode.h"
 #include "ffmpegqsvdecode.h"
+#include "ffmpegcpudecode.h"
 
 static DecodeTaskManagerImpl* g_task_manager = nullptr;
 DecodeTaskManagerImpl::DecodeTaskManagerImpl()
@@ -67,6 +68,9 @@ DecodeTask *DecodeTaskManagerImpl::makeTask(const QString device)
     }else if(device == "qsv")
     {
         return new FFmpegQsvDecode(this);
+    }else if(device == "cpu")
+    {
+        return new FFmpegCpuDecode(this);
     }
 
     return nullptr;

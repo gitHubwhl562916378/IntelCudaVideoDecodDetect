@@ -17,6 +17,7 @@ bool RenderManager::registerRender(AVPixelFormat type, bool horizontal, bool ver
     VideoRender *r{nullptr};
     switch (type) {
     case AV_PIX_FMT_YUV420P:
+    case AV_PIX_FMT_YUVJ420P:
         r = new YuvRender;
         break;
     case AV_PIX_FMT_NV12:

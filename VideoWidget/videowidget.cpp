@@ -42,6 +42,7 @@ void VideoWidget::startPlay(QString url, QString decodeName)
         return;
     }
     m_decoderName = decodeName;
+    m_url = url;
     connect(m_decoThr,SIGNAL(sigVideoStarted(uchar*,int,int,int)),this,SLOT(slotVideoStarted(uchar*,int,int,int)));
     connect(m_decoThr,SIGNAL(sigCurFpsChanged(int)), this, SIGNAL(sigCurFpsChanged(int)));
     connect(m_decoThr,SIGNAL(sigFrameLoaded()),this,SLOT(update()));
@@ -110,6 +111,7 @@ void VideoWidget::initializeGL()
 {
     m_renderM->registerRender(AV_PIX_FMT_NV12);
     m_renderM->registerRender(AV_PIX_FMT_YUV420P);
+    m_renderM->registerRender(AV_PIX_FMT_YUVJ420P);
     render_ = createRender();
     if(render_){
         render_->initsize(QOpenGLContext::currentContext());

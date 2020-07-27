@@ -98,6 +98,12 @@ void FFmpegQsvDecode::run()
     }
 
     int vden = video_st->avg_frame_rate.den,vnum = video_st->avg_frame_rate.num;
+    if(vden <= 0)
+    {
+        errorMsg = "get fps failed";
+        emit sigError(errorMsg);
+        goto  END;
+    }
     fps_ = vnum/vden;
 
     if ((ret = taskManager_->hwDecoderInit(AV_HWDEVICE_TYPE_QSV)) < 0)
@@ -231,6 +237,7 @@ int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, 
             return ret;
         }
 
+        //gpu拷贝到cpu，相对耗时
         ret = av_hwframe_transfer_data(sw_frame, frame, 0);
         if (ret < 0) {
             av_strerror(ret, errorbuf, sizeof(errorbuf));
