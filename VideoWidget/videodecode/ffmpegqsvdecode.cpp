@@ -208,6 +208,8 @@ END:
         avformat_close_input(&pFormatCtx);
     }
     isDecodeStarted_ = false;
+    fps_ = 0;
+    emit sigCurFpsChanged(fps_);
 }
 
 int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, AVFrame *sw_frame, AVPacket *pkt)

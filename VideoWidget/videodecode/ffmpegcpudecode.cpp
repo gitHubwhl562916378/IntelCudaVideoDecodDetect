@@ -193,6 +193,7 @@ END:
     }
     isDecodeStarted_ = false;
     fps_ = 0;
+    emit sigCurFpsChanged(fps_);
 }
 
 int FFmpegCpuDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet, AVFrame *pFrame)

@@ -11,8 +11,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QWidget(parent)
 {
     playBtn_ = new QPushButton("play");
-    //rtsp://192.168.2.66/mclz_cooking.mp4
-    urlEdit_ = new QLineEdit("screen.mp4");
+    //rtsp://192.168.2.66/mclz_cooking.mp4 rtsp://192.168.2.66/person.avi
+    urlEdit_ = new QLineEdit("rtsp://192.168.2.66/person.avi");
     decoderBox_ = new QComboBox;
     gridLay_ = new QGridLayout;
     dCheck_ = new QCheckBox("auto transform");
@@ -22,6 +22,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     decoderBox_->addItem("cuda");
     decoderBox_->addItem("qsv");
+    decoderBox_->addItem("cpu");
     QHBoxLayout *hlay = new QHBoxLayout;
     hlay->addWidget(urlEdit_);
     hlay->addStretch();
@@ -90,13 +91,8 @@ void MainWindow::slotPlayBtnClicked()
     decoder = decoderBox_->currentText();
     if(dCheck_->isChecked())
     {
-        int index = decoderBox_->currentIndex() ? 0 : 1;
-        decoder = decoderBox_->currentText();
+        decoder = decoderBox_->itemText(playIndex % decoderBox_->count());
     }
     videoW->startPlay(urlEdit_->text(), decoder);
     playIndex++;
-    if(playIndex >= gridLay_->count())
-    {
-        playIndex = 0;
-    }
 }
