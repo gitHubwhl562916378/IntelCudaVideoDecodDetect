@@ -32,6 +32,6 @@
 * 下载GPU-Z可以观察硬件运行情况
 
 ## 其它
-* 根目录下的`IntelCudaVideoDecodDetect.rar`为编译好的可执行包，可以直接运行不用配置环境编译
-* 根目录下有一个`解码性能报告.xlsx`可供参考
-* intelmedia-sdk下载需要注册，根目录下有下载好的
+* tag1.0分支的`IntelCudaVideoDecodDetect.rar`为编译好的可执行包，可以直接运行不用配置环境编译
+* tag1.0分支有一个`解码性能报告.xlsx`可供参考
+* tag1.0分支的intelmedia-sdk下载需要注册，所以下载好了，放这儿。是64bit的
