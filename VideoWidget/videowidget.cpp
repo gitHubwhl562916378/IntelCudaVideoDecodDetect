@@ -1,142 +1,92 @@
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
-#include <QDateTime>
+#include "renderthread.h"
 #include "videowidget.h"
-#include "render/rendermanager.h"
-#include "videodecode/decodtask.h"
-#include <QDebug>
 
-VideoWidget::VideoWidget(QWidget *parent):
-    QOpenGLWidget(parent)
+VideoWidget::VideoWidget(QWidget *parent)
 {
-    m_renderM = new RenderManager;
+    isFrameSwapped_.store(false);
+    connect(this, &QOpenGLWidget::aboutToCompose, this, &VideoWidget::slotAboutToCompose);
+    connect(this, &QOpenGLWidget::frameSwapped, this, &VideoWidget::slotFrameSwapped);
+    connect(this, &QOpenGLWidget::aboutToResize, this, &VideoWidget::slotAboutToResize);
+    connect(this, &QOpenGLWidget::resized, this, &VideoWidget::slotResized);
+
+    m_thread = new RenderThread(this);
+    connect(m_thread, &RenderThread::sigContextWanted, this, &VideoWidget::slotGrabContext);
+
+    connect(m_thread, &RenderThread::sigError, this, &VideoWidget::sigError);
+    connect(m_thread, &RenderThread::sigVideoStarted, this, &VideoWidget::sigVideoStarted);
+    connect(m_thread, &RenderThread::sigFps, this, &VideoWidget::sigFps);
+    connect(m_thread, &RenderThread::sigCurFpsChanged, this, &VideoWidget::sigCurFpsChanged);
 }
 
 VideoWidget::~VideoWidget()
 {
-    stop();
-    makeCurrent();
-    delete m_renderM;
-    if(render_){
-        delete render_;
-    }
-}
-
-VideoWidget::PlayState VideoWidget::playState() const
-{
-    return m_state;
-}
-
-void VideoWidget::startPlay(QString url, QString decodeName)
-{
-    m_state = Reading;
-    if(m_decoThr)
+    if(m_thread->isRunning())
     {
-        stop();
+        slotStop();
     }
+    delete m_thread;
+}
 
-    m_decoThr = DecodeTaskManager::Instance()->makeTask(decodeName);
-    if(!m_decoThr)
+bool VideoWidget::isFrameSwapped() const
+{
+    return isFrameSwapped_.load();
+}
+
+void VideoWidget::slotPlay(QString filename, QString device)
+{
+    if(m_thread->isRunning())
     {
-        emit sigError("No such device to decode video");
-        return;
+        slotStop();
     }
-    m_decoderName = decodeName;
-    m_url = url;
-    connect(m_decoThr,SIGNAL(sigVideoStarted(uchar*,int,int,int)),this,SLOT(slotVideoStarted(uchar*,int,int,int)));
-    connect(m_decoThr,SIGNAL(sigCurFpsChanged(int)), this, SIGNAL(sigCurFpsChanged(int)));
-    connect(m_decoThr,SIGNAL(sigFrameLoaded()),this,SLOT(update()));
-//    connect(m_decoThr, &DecodeTask::sigFrameLoaded,this, [&]{update();});
-    connect(m_decoThr,SIGNAL(sigError(QString)),this,SIGNAL(sigError(QString)));
-    connect(m_decoThr,SIGNAL(finished()),this,SLOT(stop()));
-    m_decoThr->startPlay(url);
+    m_thread->setDevice(device);
+    m_thread->setFileName(filename);
+    m_thread->start();
 }
 
-int VideoWidget::videoWidth() const
+void VideoWidget::slotStop()
 {
-    return m_videoW;
+    m_thread->requestInterruption();
+    m_thread->prepareExit();
+    m_thread->quit();
+    m_thread->wait();
 }
 
-int VideoWidget::videoHeidht() const
+void VideoWidget::resizeGL(int w, int h)
 {
-    return m_videoH;
+//    m_thread->lockRenderer();
+    context()->functions()->glViewport(0, 0, w, h);
+//    m_thread->unlockRenderer();
 }
 
-int VideoWidget::fps() const
+void VideoWidget::slotGrabContext()
 {
-    if(m_decoThr)
-    {
-        return  m_decoThr->fps();
-    }
-
-    return 0;
+    m_thread->lockRenderer();
+    QMutexLocker lock(m_thread->grabMutex());
+    context()->moveToThread(m_thread);
+    m_thread->grabCond()->wakeAll();
+    m_thread->unlockRenderer();
 }
 
-int VideoWidget::curFps() const
+void VideoWidget::slotAboutToCompose()
 {
-    if(m_decoThr)
-    {
-        return m_decoThr->curFps();
-    }
-
-    return 0;
+    m_thread->lockRenderer();
 }
 
-QString VideoWidget::url() const
+void VideoWidget::slotFrameSwapped()
 {
-    return m_url;
+    m_thread->unlockRenderer();
+    isFrameSwapped_.store(true);
 }
 
-QString VideoWidget::decoderName() const
+void VideoWidget::slotAboutToResize()
 {
-    return m_decoderName;
+    m_thread->lockRenderer();
+    isFrameSwapped_.store(false);
 }
 
-void VideoWidget::stop()
+void VideoWidget::slotResized()
 {
-    m_state = Stop;
-    if(m_decoThr)
-    {
-        buffer_ = nullptr;
-        m_decoThr->stop();
-        m_decoThr->disconnect(this);
-        delete m_decoThr;
-        m_decoThr = nullptr;
-    }
-    update();
-    emit sigVideoStoped();
-}
-
-void VideoWidget::initializeGL()
-{
-    m_renderM->registerRender(AV_PIX_FMT_NV12);
-    m_renderM->registerRender(AV_PIX_FMT_YUV420P);
-    m_renderM->registerRender(AV_PIX_FMT_YUVJ420P);
-    render_ = createRender();
-    if(render_){
-        render_->initsize(QOpenGLContext::currentContext());
-    }
-}
-
-void VideoWidget::paintGL()
-{
-    QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-    f->glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if(!m_decoThr)return;
-    m_renderM->render(m_fmt, buffer_, m_videoW, m_videoH);
-
-    if(render_){
-        render_->render(QOpenGLContext::currentContext());
-    }
-}
-
-void VideoWidget::slotVideoStarted(uchar* ptr,int pixformat,int width,int height)
-{
-    m_videoW = width;
-    m_videoH = height;
-    buffer_ = ptr;
-    m_state = Playing;
-    m_fmt = AVPixelFormat(pixformat);
-    emit sigVideoStarted(width, height);
+    m_thread->unlockRenderer();
 }

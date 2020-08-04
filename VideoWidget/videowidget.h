@@ -1,64 +1,43 @@
 #ifndef VIDEOWIDGET_H
 #define VIDEOWIDGET_H
 
+#include <atomic>
 #include <QOpenGLWidget>
-#include <mutex>
-#include <QTimer>
-#include "render/videorender.h"
-
-QT_FORWARD_DECLARE_CLASS(DecodeTask)
+QT_FORWARD_DECLARE_CLASS(RenderThread)
 class VideoWidget : public QOpenGLWidget
 {
     Q_OBJECT
 public:
-    enum PlayState{
-        Stop,
-        Reading,
-        Playing
-    };
     VideoWidget(QWidget *parent = nullptr);
     ~VideoWidget() override;
-    PlayState playState() const;
-    void startPlay(QString url,QString decodeName);
-    int videoWidth() const;
-    int videoHeidht() const;
-    int fps() const;
-    int curFps() const;
-    QString url() const;
-    QString decoderName() const;
+    bool isFrameSwapped() const;
 
 public slots:
-    void stop();
+    void slotPlay(QString filename, QString device);
+    void slotStop();
 
 signals:
+    void sigRequestRender();
+
     void sigError(QString);
+    void sigVideoStarted(int, int);
+    void sigFps(int);
     void sigCurFpsChanged(int);
-    void sigVideoStarted(int,int);
-    void sigVideoStoped();
 
 protected:
-    class Render{
-    public:
-        virtual ~Render(){};
-        virtual void initsize(QOpenGLContext *ctx) = 0;
-        virtual void render(QOpenGLContext *ctx) = 0;
-    };
-    virtual Render* createRender() const{return nullptr;}
-    void initializeGL() override;
-    void paintGL() override;
-
-private:
-    PlayState m_state = Stop;
-    VideoRenderManager *m_renderM{nullptr};
-    AVPixelFormat m_fmt;
-    int m_videoW,m_videoH;
-    DecodeTask *m_decoThr{nullptr};
-    QString m_url,m_decoderName;
-    Render *render_{nullptr};
-    uchar *buffer_ = nullptr;
+    void paintEvent(QPaintEvent *) override { }
+    void resizeGL(int w, int h) override;
 
 private slots:
-    void slotVideoStarted(uchar*,int,int,int);
+    void slotGrabContext();
+    void slotAboutToCompose();
+    void slotFrameSwapped();
+    void slotAboutToResize();
+    void slotResized();
+
+private:
+    RenderThread *m_thread;
+    std::atomic_bool isFrameSwapped_;
 };
 
 #endif // VIDEOWIDGET_H

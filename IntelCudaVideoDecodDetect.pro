@@ -32,10 +32,10 @@ SOURCES += \
 HEADERS += \
         mainwindow.h
 
-INCLUDEPATH += D:/ffmpeg/x64/include \
+INCLUDEPATH += E:/ffmpeg/x64/include \
                $$(INTELMEDIASDKROOT)/include
 
-LIBS += -LD:/ffmpeg/x64/lib \
+LIBS += -LE:/ffmpeg/x64/lib \
         avcodec.lib avdevice.lib avfilter.lib avformat.lib avutil.lib postproc.lib swresample.lib swscale.lib
 
 # Default rules for deployment.

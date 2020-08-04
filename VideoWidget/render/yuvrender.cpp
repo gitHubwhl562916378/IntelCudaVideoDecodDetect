@@ -4,9 +4,13 @@ YuvRender::~YuvRender()
 {
     vbo.destroy();
     glDeleteTextures(sizeof(textures) / sizeof(GLuint),textures);
+    if(buffer_){
+        delete buffer_;
+        buffer_ = nullptr;
+    }
 }
 
-void YuvRender::initialize(bool horizontal, bool vertical)
+void YuvRender::initialize(const int width, const int height, const bool horizontal, const bool vertical)
 {
     initializeOpenGLFunctions();
     const char *vsrc =
@@ -117,11 +121,41 @@ void YuvRender::initialize(bool horizontal, bool vertical)
     idU = id[1];
     idV = id[2];
     std::copy(std::begin(id),std::end(id),std::begin(textures));
+
+    glBindTexture(GL_TEXTURE_2D,idY);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RED,width,height,0,GL_RED,GL_UNSIGNED_BYTE,nullptr);
+    //https://blog.csdn.net/xipiaoyouzi/article/details/53584798 纹理参数解析
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glBindTexture(GL_TEXTURE_2D,idU);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_RED,width >> 1, height >> 1,0,GL_RED,GL_UNSIGNED_BYTE,nullptr);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glBindTexture(GL_TEXTURE_2D,idV);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width >> 1, height >> 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glDisable(GL_DEPTH_TEST);
+
+    if(buffer_){
+        delete buffer_;
+        buffer_ = nullptr;
+    }
 }
 
-void YuvRender::render(uchar *yuvPtr, int w, int h)
+void YuvRender::render(uchar *yuvPtr, const int w, const int h)
 {
-    glDisable(GL_DEPTH_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if(!yuvPtr){
         return;
     }
@@ -132,30 +166,19 @@ void YuvRender::render(uchar *yuvPtr, int w, int h)
     program.enableAttributeArray("textureIn");
     program.setAttributeBuffer("vertexIn",GL_FLOAT, 0, 2, 2*sizeof(GLfloat));
     program.setAttributeBuffer("textureIn",GL_FLOAT,2 * 4 * sizeof(GLfloat),2,2*sizeof(GLfloat));
+
     glActiveTexture(GL_TEXTURE0 + 2);
     glBindTexture(GL_TEXTURE_2D,idY);
-    glTexImage2D(GL_TEXTURE_2D,0,GL_RED,w,h,0,GL_RED,GL_UNSIGNED_BYTE,yuvPtr);
+    glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_RED,GL_UNSIGNED_BYTE,yuvPtr);
     //https://blog.csdn.net/xipiaoyouzi/article/details/53584798 纹理参数解析
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR );
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR );
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     glActiveTexture(GL_TEXTURE0 + 1);
     glBindTexture(GL_TEXTURE_2D,idU);
-    glTexImage2D(GL_TEXTURE_2D,0,GL_RED,w >> 1, h >> 1,0,GL_RED,GL_UNSIGNED_BYTE,yuvPtr + w * h);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR );
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR );
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w >> 1, h >> 1,GL_RED,GL_UNSIGNED_BYTE,yuvPtr + w * h);
 
     glActiveTexture(GL_TEXTURE0 + 0);
     glBindTexture(GL_TEXTURE_2D,idV);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w >> 1, h >> 1, 0, GL_RED, GL_UNSIGNED_BYTE, yuvPtr+w*h*5/4);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR );
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR );
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w >> 1, h >> 1,GL_RED,GL_UNSIGNED_BYTE,yuvPtr + w*h*5/4);
 
     program.setUniformValue("tex_y",2);
     program.setUniformValue("tex_u",1);
@@ -165,4 +188,31 @@ void YuvRender::render(uchar *yuvPtr, int w, int h)
     program.disableAttributeArray("textureIn");
     vbo.release();
     program.release();
+}
+
+void YuvRender::render(unsigned char *planr[], int line_size[], const int width, const int height)
+{
+    if(!planr){
+        return;
+    }
+
+    if(!buffer_){
+        buffer_ = new unsigned char[width * height * 3 / 2];
+    }
+
+    int bytes = 0; //yuv data有3块内存分别拷，nv12只有2块内存分别拷
+    for(int i = 0; i <height; i++){ //将y分量拷贝
+        ::memcpy(buffer_ + bytes,planr[0] + line_size[0] * i, width);
+        bytes += width;
+    }
+    int uv = height >> 1;
+    for(int i = 0; i < uv; i++){ //将u分量拷贝
+        ::memcpy(buffer_ + bytes,planr[1] + line_size[1] * i, width >> 1);
+        bytes += width >> 1;
+    }
+    for(int i = 0; i < uv; i++){ //将v分量拷贝
+        ::memcpy(buffer_ + bytes,planr[2] + line_size[2] * i, width >> 1);
+        bytes += width >> 1;
+    }
+    render(buffer_, width, height);
 }

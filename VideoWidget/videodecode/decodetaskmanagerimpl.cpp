@@ -2,9 +2,12 @@ extern "C"
 {
 #include "libavutil/hwcontext_qsv.h"
 }
+#include <QLibrary>
+#include "../renderthread.h"
 #include "ffmpegcudadecode.h"
 #include "ffmpegqsvdecode.h"
 #include "ffmpegcpudecode.h"
+#include "nvidiadecode.h"
 
 static DecodeTaskManagerImpl* g_task_manager = nullptr;
 DecodeTaskManagerImpl::DecodeTaskManagerImpl()
@@ -60,17 +63,38 @@ AVBufferRef *DecodeTaskManagerImpl::hwDecoderBuffer(const AVHWDeviceType type)
     return iter->second;
 }
 
-DecodeTask *DecodeTaskManagerImpl::makeTask(const QString device)
+DecodeTask *DecodeTaskManagerImpl::makeTask(RenderThread *render_thr, const QString &device)
 {
     if(device == "cuda")
     {
-        return new FFmpegCudaDecode(this);
+        return new FFmpegCudaDecode(this, render_thr);
     }else if(device == "qsv")
     {
-        return new FFmpegQsvDecode(this);
+        return new FFmpegQsvDecode(this, render_thr);
     }else if(device == "cpu")
     {
-        return new FFmpegCpuDecode(this);
+        return new FFmpegCpuDecode(this, render_thr);
+    }else if(device == "cuda_plugin")
+    {
+        std::lock_guard<std::mutex> lock(decoder_plugin_mtx_);
+        CreateDecoderFunc func = nullptr;
+        auto iter = decoder_plug_map_.find(device);
+        if(iter == decoder_plug_map_.end())
+        {
+            QLibrary dllLoad("NvidiaDecoderPlugin");
+            if(dllLoad.load()){
+                func = (CreateDecoderFunc)dllLoad.resolve("createDecoder");
+                bool code = decoder_plug_map_.insert(std::make_pair(device, func)).second;
+                if(!code){
+                    render_thr->sigError("load NvidiaDecoderPlugin failed");
+                }
+            }else{
+                render_thr->sigError("load NvidiaDecoderPlugin failed");
+            }
+        }else{
+            func = iter->second;
+        }
+        return new NvidiaDecode(this, func, render_thr);
     }
 
     return nullptr;

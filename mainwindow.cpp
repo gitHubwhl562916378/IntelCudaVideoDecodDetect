@@ -12,17 +12,15 @@ MainWindow::MainWindow(QWidget *parent)
 {
     playBtn_ = new QPushButton("play");
     //rtsp://192.168.2.66/mclz_cooking.mp4 rtsp://192.168.2.66/person.avi
-    urlEdit_ = new QLineEdit("rtsp://192.168.2.66/person.avi");
-    decoderBox_ = new QComboBox;
+    urlEdit_ = new QLineEdit("rtsp://10.10.8.11/person.avi");
+    decoderBox_ = new QComboBox();
     gridLay_ = new QGridLayout;
     dCheck_ = new QCheckBox("auto transform");
     dCheck_->setChecked(true);
 
     QVBoxLayout *mainLay = new QVBoxLayout;
 
-    decoderBox_->addItem("cuda");
-    decoderBox_->addItem("qsv");
-    decoderBox_->addItem("cpu");
+    decoderBox_->addItems(QStringList() << tr("cpu") << tr("cuda") << tr("cuda_plugin") << tr("qsv"));
     QHBoxLayout *hlay = new QHBoxLayout;
     hlay->addWidget(urlEdit_);
     hlay->addStretch();
@@ -55,15 +53,18 @@ MainWindow::MainWindow(QWidget *parent)
             curFpsL->setPalette(pal);
             curFpsL->setFont(f);
             VideoWidget *videoW = new VideoWidget;
+            connect(videoW, &VideoWidget::sigFps, [=](int fps){
+                fpsL->setNum(fps);
+                QPalette pal = fpsL->palette();
+                pal.setColor(QPalette::Foreground, Qt::green);
+                fpsL->setPalette(pal);
+            });
+
             connect(videoW, &VideoWidget::sigCurFpsChanged, [=](int curFps){
-                fpsL->setNum(videoW->fps());
                 curFpsL->setNum(curFps);
-                if(curFps < videoW->fps())
-                {
-                    QPalette pal = curFpsL->palette();
-                    pal.setColor(QPalette::Foreground, Qt::red);
-                    curFpsL->setPalette(pal);
-                }
+                QPalette pal = curFpsL->palette();
+                pal.setColor(QPalette::Foreground, Qt::red);
+                curFpsL->setPalette(pal);
             });
 
             QHBoxLayout *hlay = new QHBoxLayout;
@@ -93,6 +94,6 @@ void MainWindow::slotPlayBtnClicked()
     {
         decoder = decoderBox_->itemText(playIndex % decoderBox_->count());
     }
-    videoW->startPlay(urlEdit_->text(), decoder);
+    videoW->slotPlay(urlEdit_->text(), decoder);
     playIndex++;
 }

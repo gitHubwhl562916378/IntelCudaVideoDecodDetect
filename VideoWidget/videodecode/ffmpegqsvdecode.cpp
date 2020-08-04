@@ -1,4 +1,4 @@
-extern "C"
+﻿extern "C"
 {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
@@ -9,48 +9,31 @@ extern "C"
 #include "libavutil/imgutils.h"
 }
 #include <QDateTime>
+#include "../renderthread.h"
 #include "ffmpegqsvdecode.h"
 
-FFmpegQsvDecode::FFmpegQsvDecode(DecodeTaskManagerImpl *taskManager, QObject *parent):
-    DecodeTask(parent),
-    taskManager_(taskManager)
+FFmpegQsvDecode::FFmpegQsvDecode(DecodeTaskManagerImpl *taskManger, RenderThread *render_thr):
+    DecodeTask(render_thr),
+    taskManager_(taskManger)
 {
 
 }
 
 FFmpegQsvDecode::~FFmpegQsvDecode()
 {
-
-}
-
-void FFmpegQsvDecode::startPlay(QString source)
-{
-    if(isRunning())
+    if(buffer_)
     {
-        stop();
+        av_free(buffer_);
+        buffer_ = nullptr;
     }
-    url_ = source;
-    start();
+
+    if(render_)
+    {
+        thread()->Render([&](){delete render_;});
+    }
 }
 
-void FFmpegQsvDecode::stop()
-{
-    requestInterruption();
-    quit();
-    wait();
-}
-
-int FFmpegQsvDecode::fps()
-{
-    return fps_;
-}
-
-int FFmpegQsvDecode::curFps()
-{
-    return curFps_;
-}
-
-void FFmpegQsvDecode::run()
+void FFmpegQsvDecode::decode(const QString &url)
 {
     AVFormatContext *pFormatCtx = nullptr;
     AVCodecContext *pCodecCtx = nullptr;
@@ -68,17 +51,17 @@ void FFmpegQsvDecode::run()
     //av_dict_set(&opt,"max_delay","0",0);
     av_dict_set(&opt,"rtsp_transport","tcp",0);
     av_dict_set(&opt,"stimeout","5000000",0);
-    if ((ret = avformat_open_input(&pFormatCtx, url_.toUtf8().data(), nullptr, &opt)) != 0) {
+    if ((ret = avformat_open_input(&pFormatCtx, url.toUtf8().data(), nullptr, &opt)) != 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
     if ((ret = avformat_find_stream_info(pFormatCtx, nullptr)) < 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
@@ -93,7 +76,7 @@ void FFmpegQsvDecode::run()
     }
     if (!video_st) {
         errorMsg = "No H.264 video stream in the input file";
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
@@ -101,30 +84,30 @@ void FFmpegQsvDecode::run()
     if(vden <= 0)
     {
         errorMsg = "get fps failed";
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
-    fps_ = vnum/vden;
+    thread()->sigFps(vnum/vden);
 
     if ((ret = taskManager_->hwDecoderInit(AV_HWDEVICE_TYPE_QSV)) < 0)
     {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
     pCodec = avcodec_find_decoder_by_name("h264_qsv");
     if(!pCodec){
         errorMsg = "The QSV decoder is not present in libavcodec";
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto END;
     }
 
     if (!(pCodecCtx = avcodec_alloc_context3(pCodec)))
     {
         errorMsg = QString("avcodec_alloc_context3(pCodec) error: %1").arg(AVERROR(ENOMEM));
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
@@ -146,15 +129,15 @@ void FFmpegQsvDecode::run()
     if ((ret = avcodec_open2(pCodecCtx, nullptr, nullptr)) < 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
     pFrame = av_frame_alloc();
     swFrame = av_frame_alloc();
-    av_dump_format(pFormatCtx, 0, url_.toUtf8().data(), 0); //输出视频信息
+    av_dump_format(pFormatCtx, 0, url.toUtf8().data(), 0); //输出视频信息
 
-    while (!isInterruptionRequested())
+    while (!thread()->isInterruptionRequested())
     {
         if ((ret = av_read_frame(pFormatCtx, &packet)) < 0)
         {
@@ -162,7 +145,7 @@ void FFmpegQsvDecode::run()
             {
                 av_strerror(ret, errorbuf, sizeof(errorbuf));
                 errorMsg = errorbuf;
-                emit sigError(errorMsg);
+                thread()->sigError(errorMsg);
             }
             break; //这里认为视频读取完了
         }
@@ -177,7 +160,7 @@ void FFmpegQsvDecode::run()
             if(decode_frames_ != curFps_)
             {
                 curFps_ = decode_frames_;
-                emit sigCurFpsChanged(curFps_);
+                thread()->sigCurFpsChanged(curFps_);
             }
             start_pt_ = end_pt;
             decode_frames_ = 0;
@@ -207,9 +190,7 @@ END:
     {
         avformat_close_input(&pFormatCtx);
     }
-    isDecodeStarted_ = false;
-    fps_ = 0;
-    emit sigCurFpsChanged(fps_);
+    thread()->sigCurFpsChanged(0);
 }
 
 int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, AVFrame *sw_frame, AVPacket *pkt)
@@ -222,7 +203,7 @@ int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, 
     if (ret < 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         return ret;
     }
 
@@ -235,7 +216,7 @@ int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, 
         else if (ret < 0) {
             av_strerror(ret, errorbuf, sizeof(errorbuf));
             errorMsg = QString("Error during decoding: %1").arg(errorbuf);
-            emit sigError(errorMsg);
+            thread()->sigError(errorMsg);
             return ret;
         }
 
@@ -244,44 +225,45 @@ int FFmpegQsvDecode::decode_packet(AVCodecContext *decoder_ctx, AVFrame *frame, 
         if (ret < 0) {
             av_strerror(ret, errorbuf, sizeof(errorbuf));
             errorMsg = QString("Error transferring the data to system memory: %1").arg(errorbuf);
-            emit sigError(errorMsg);
+            thread()->sigError(errorMsg);
             goto fail;
         }
-        sw_frame->pts =  frame->best_effort_timestamp;
-        if(sw_frame->pts != AV_NOPTS_VALUE)
-        {
-            if(last_pts_ != AV_NOPTS_VALUE)
-            {
-                AVRational ra;
-                ra.num = 1;
-                ra.den = AV_TIME_BASE;
-                int64_t delay = av_rescale_q(sw_frame->pts - last_pts_, stream_time_base_, ra);
-                if(delay > 0 && delay < 1000000)
-                {
-                    QThread::usleep(delay);
-                }
-            }
-            last_pts_ = sw_frame->pts;
-        }
-        if(!isDecodeStarted_)
+//        sw_frame->pts =  frame->best_effort_timestamp;
+//        if(sw_frame->pts != AV_NOPTS_VALUE)
+//        {
+//            if(last_pts_ != AV_NOPTS_VALUE)
+//            {
+//                AVRational ra;
+//                ra.num = 1;
+//                ra.den = AV_TIME_BASE;
+//                int64_t delay = av_rescale_q(sw_frame->pts - last_pts_, stream_time_base_, ra);
+//                if(delay > 0 && delay < 1000000)
+//                {
+//                    QThread::usleep(delay);
+//                }
+//            }
+//            last_pts_ = sw_frame->pts;
+//        }
+        if(!buffer_)
         {
             bufferSize_ = av_image_get_buffer_size(AVPixelFormat(sw_frame->format), sw_frame->width,
                                                    sw_frame->height, 1);
 
-            if(buffer_)
-            {
-                av_free(buffer_);
-                buffer_ = nullptr;
-            }
             buffer_ = (uint8_t*) av_malloc(bufferSize_);
-            emit sigVideoStarted(buffer_, sw_frame->format, sw_frame->width, sw_frame->height);
-            isDecodeStarted_ = true;
         }
         ret = av_image_copy_to_buffer(buffer_, bufferSize_,
                                       (const uint8_t * const *)sw_frame->data,
                                       (const int *)sw_frame->linesize, AVPixelFormat(sw_frame->format),
                                       sw_frame->width, sw_frame->height, 1);
-        emit sigFrameLoaded();
+
+        thread()->Render([&](){
+            if(!render_)
+            {
+                render_ = thread()->getRender(sw_frame->format);
+                render_->initialize(sw_frame->width, sw_frame->height);
+            }
+            render_->render(buffer_, sw_frame->width, sw_frame->height);
+        });
 
     fail:
         av_frame_unref(sw_frame);

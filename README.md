@@ -35,3 +35,8 @@
 * tag1.0分支的`IntelCudaVideoDecodDetect.rar`为编译好的可执行包，可以直接运行不用配置环境编译
 * tag1.0分支有一个`解码性能报告.xlsx`可供参考
 * tag1.0分支的intelmedia-sdk下载需要注册，所以下载好了，放这儿。是64bit的
+
+## 更新
+
+### 2020/8/4
+* 更换最新的离屏渲染，cuda与opengl交互模块。提升性能

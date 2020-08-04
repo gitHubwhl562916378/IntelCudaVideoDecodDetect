@@ -1,4 +1,4 @@
-extern "C"
+﻿extern "C"
 {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
@@ -9,53 +9,30 @@ extern "C"
 #include "libavutil/imgutils.h"
 }
 #include <QDateTime>
+#include "../renderthread.h"
 #include "ffmpegcudadecode.h"
 
-FFmpegCudaDecode::FFmpegCudaDecode(DecodeTaskManagerImpl *taskManger, QObject *parent):
-    DecodeTask(parent),
+FFmpegCudaDecode::FFmpegCudaDecode(DecodeTaskManagerImpl *taskManger, RenderThread *render_thr):
+    DecodeTask(render_thr),
     taskManager_(taskManger)
 {
 }
 
 FFmpegCudaDecode::~FFmpegCudaDecode()
 {
-    stop();
-
     if(buffer_)
     {
         av_free(buffer_);
         buffer_ = nullptr;
     }
-}
 
-void FFmpegCudaDecode::startPlay(QString url)
-{
-    if(isRunning())
+    if(render_)
     {
-        stop();
+        thread()->Render([&](){delete render_;});
     }
-    url_ = url;
-    start();
 }
 
-void FFmpegCudaDecode::stop()
-{
-    requestInterruption();
-    quit();
-    wait();
-}
-
-int FFmpegCudaDecode::fps()
-{
-    return fps_;
-}
-
-int FFmpegCudaDecode::curFps()
-{
-    return curFps_;
-}
-
-void FFmpegCudaDecode::run()
+void FFmpegCudaDecode::decode(const QString &url)
 {
     AVFormatContext *pFormatCtx = nullptr;
     AVCodecContext *pCodecCtx = nullptr;
@@ -78,7 +55,7 @@ void FFmpegCudaDecode::run()
             str += QString(" %1").arg(av_hwdevice_get_type_name(type));
         errorMsg = QString("Device type %1 is not supported.%2").arg(device_name, str);
 
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         return;
     }
 
@@ -87,24 +64,24 @@ void FFmpegCudaDecode::run()
     //av_dict_set(&opt,"max_delay","0",0);
     av_dict_set(&opt,"rtsp_transport","tcp",0);
     av_dict_set(&opt,"stimeout","5000000",0);
-    if ((ret = avformat_open_input(&pFormatCtx, url_.toUtf8().data(), nullptr, &opt)) != 0) {
+    if ((ret = avformat_open_input(&pFormatCtx, url.toUtf8().data(), nullptr, &opt)) != 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
     if ((ret = avformat_find_stream_info(pFormatCtx, nullptr)) < 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
     if((ret = av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &pCodec, 0)) < 0){
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
     videoStream = ret;
@@ -113,7 +90,7 @@ void FFmpegCudaDecode::run()
         const AVCodecHWConfig *config = avcodec_get_hw_config(pCodec, i);
         if (!config) {
             errorMsg = QString("Decoder %1 does not support device type %2").arg(pCodec->name).arg(av_hwdevice_get_type_name(type));
-            emit sigError(errorMsg);
+            thread()->sigError(errorMsg);
             goto  END;
         }
         if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
@@ -126,7 +103,7 @@ void FFmpegCudaDecode::run()
     if (!(pCodecCtx = avcodec_alloc_context3(pCodec)))
     {
         errorMsg = QString("avcodec_alloc_context3(pCodec) error: %1").arg(AVERROR(ENOMEM));
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
@@ -135,7 +112,7 @@ void FFmpegCudaDecode::run()
     {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
@@ -143,10 +120,10 @@ void FFmpegCudaDecode::run()
     if(vden <= 0)
     {
         errorMsg = "get fps failed";
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
-    fps_ = vnum/vden;
+    thread()->sigFps(vnum/vden);
     stream_time_base_ = video->time_base;
 
     pCodecCtx->get_format = get_cuda_hw_format;
@@ -155,7 +132,7 @@ void FFmpegCudaDecode::run()
     {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
     pCodecCtx->hw_device_ctx = av_buffer_ref(taskManager_->hwDecoderBuffer(type));
@@ -164,15 +141,14 @@ void FFmpegCudaDecode::run()
     if ((ret = avcodec_open2(pCodecCtx, pCodec, nullptr)) < 0) {
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = errorbuf;
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         goto  END;
     }
 
     pFrame = av_frame_alloc();
     swFrame = av_frame_alloc();
-    av_dump_format(pFormatCtx, 0, url_.toUtf8().data(), 0); //输出视频信息
-
-    while (!isInterruptionRequested() && ret >= 0)
+    av_dump_format(pFormatCtx, 0, url.toUtf8().data(), 0); //输出视频信息
+    while (!thread()->isInterruptionRequested() && ret >= 0)
     {
         if ((ret = av_read_frame(pFormatCtx, &packet)) < 0)
         {
@@ -180,7 +156,7 @@ void FFmpegCudaDecode::run()
             {
                 av_strerror(ret, errorbuf, sizeof(errorbuf));
                 errorMsg = errorbuf;
-                emit sigError(errorMsg);
+                thread()->sigError(errorMsg);
             }
             break; //这里认为视频读取完了
         }
@@ -195,7 +171,7 @@ void FFmpegCudaDecode::run()
             if(decode_frames_ != curFps_)
             {
                 curFps_ = decode_frames_;
-                emit sigCurFpsChanged(curFps_);
+                thread()->sigCurFpsChanged(curFps_);
             }
             start_pt_ = end_pt;
             decode_frames_ = 0;
@@ -225,9 +201,7 @@ END:
     {
         avformat_close_input(&pFormatCtx);
     }
-    isDecodeStarted_ = false;
-    fps_ = 0;
-    emit sigCurFpsChanged(fps_);
+    thread()->sigCurFpsChanged(0);
 }
 
 int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet, AVFrame *pFrame, AVFrame *swFrame)
@@ -239,7 +213,7 @@ int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet,
     if((ret = avcodec_send_packet(pCodecCtx, packet)) < 0 ){
         av_strerror(ret, errorbuf, sizeof(errorbuf));
         errorMsg = QString("Error during avcodec_send_packet: %1").arg(errorbuf);
-        emit sigError(errorMsg);
+        thread()->sigError(errorMsg);
         return ret;
     }
 
@@ -251,56 +225,68 @@ int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet,
         }else if(ret < 0){
             av_strerror(ret, errorbuf, sizeof(errorbuf));
             errorMsg = QString("Error while avcodec_receive_frame: %1").arg(errorbuf);
-            emit sigError(errorMsg);
+            thread()->sigError(errorMsg);
             goto fail;
         }
 
+#if 1
+        thread()->Render([&](){
+            if(!render_)
+            {
+                render_ = thread()->getRender(pFrame->format);
+                render_->initialize(pFrame->width, pFrame->height);
+            }
+            render_->render(pFrame->data, pFrame->linesize, pFrame->width, pFrame->height);
+        });
+#else
         //gpu拷贝到cpu，相对耗时
         if((ret = av_hwframe_transfer_data(swFrame, pFrame, 0)) < 0 ){
             av_strerror(ret, errorbuf, sizeof(errorbuf));
             errorMsg = QString("Error transferring the data to system memory: %1").arg(errorbuf);
-            emit sigError(errorMsg);
+            thread()->sigError(errorMsg);
             goto fail;
         }
 
-        swFrame->pts =  pFrame->best_effort_timestamp;
-        if(swFrame->pts != AV_NOPTS_VALUE)
-        {
-            if(last_pts_ != AV_NOPTS_VALUE)
-            {
-                AVRational ra;
-                ra.num = 1;
-                ra.den = AV_TIME_BASE;
-                int64_t delay = av_rescale_q(swFrame->pts - last_pts_, stream_time_base_, ra);
-                if(delay > 0 && delay < 1000000)
-                {
-                    QThread::usleep(delay);
-                }
-            }
-            last_pts_ = swFrame->pts;
-        }
-        if(!isDecodeStarted_)
+//        swFrame->pts =  pFrame->best_effort_timestamp;
+//        if(swFrame->pts != AV_NOPTS_VALUE)
+//        {
+//            if(last_pts_ != AV_NOPTS_VALUE)
+//            {
+//                AVRational ra;
+//                ra.num = 1;
+//                ra.den = AV_TIME_BASE;
+//                int64_t delay = av_rescale_q(swFrame->pts - last_pts_, stream_time_base_, ra);
+//                if(delay > 0 && delay < 1000000)
+//                {
+//                    QThread::usleep(delay);
+//                }
+//            }
+//            last_pts_ = swFrame->pts;
+//        }
+        if(!buffer_)
         {
             bufferSize_ = av_image_get_buffer_size(AVPixelFormat(swFrame->format), swFrame->width,
-                                                  swFrame->height, 1);
+                                                   swFrame->height, 1);
 
-            if(buffer_)
-            {
-                av_free(buffer_);
-                buffer_ = nullptr;
-            }
             buffer_ = (uint8_t*) av_malloc(bufferSize_);
-            emit sigVideoStarted(buffer_, swFrame->format, swFrame->width, swFrame->height);
-            isDecodeStarted_ = true;
         }
 
         ret = av_image_copy_to_buffer(buffer_, bufferSize_,
-                    (const uint8_t * const *)swFrame->data,
-                    (const int *)swFrame->linesize, AVPixelFormat(swFrame->format),
-                    swFrame->width, swFrame->height, 1);
-        emit sigFrameLoaded();
+                                      (const uint8_t * const *)swFrame->data,
+                                      (const int *)swFrame->linesize, AVPixelFormat(swFrame->format),
+                                      swFrame->width, swFrame->height, 1);
 
-    fail:
+        thread()->Render([&](){
+            if(!render_)
+            {
+                render_ = thread()->getRender(swFrame->format);
+                render_->initialize(swFrame->width, swFrame->height);
+            }
+            render_->render(buffer_, swFrame->width, swFrame->height);
+        });
+#endif
+
+fail:
         if(ret < 0){
             return  ret;
         }
