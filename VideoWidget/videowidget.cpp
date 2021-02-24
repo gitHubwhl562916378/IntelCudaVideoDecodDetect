@@ -15,7 +15,7 @@ VideoWidget::VideoWidget(QWidget *parent)
     connect(m_thread, &RenderThread::sigContextWanted, this, &VideoWidget::slotGrabContext);
 
     connect(m_thread, &RenderThread::sigError, this, &VideoWidget::sigError);
-    connect(m_thread, &RenderThread::sigVideoStarted, this, &VideoWidget::sigVideoStarted);
+    connect(m_thread, &RenderThread::sigVideoStarted, this, [&](int w, int h){m_state_ = Play; emit sigVideoStarted(w, h);});
     connect(m_thread, &RenderThread::sigFps, this, &VideoWidget::sigFps);
     connect(m_thread, &RenderThread::sigCurFpsChanged, this, &VideoWidget::sigCurFpsChanged);
 }
@@ -34,12 +34,30 @@ bool VideoWidget::isFrameSwapped() const
     return isFrameSwapped_.load();
 }
 
+QString VideoWidget::url() const
+{
+    return source_file_;
+}
+
+QString VideoWidget::deviceName() const
+{
+    return device_name_;
+}
+
+VideoWidget::PlayState VideoWidget::state() const
+{
+    return m_state_;
+}
+
 void VideoWidget::slotPlay(QString filename, QString device)
 {
+    m_state_ = Ready;
     if(m_thread->isRunning())
     {
         slotStop();
     }
+    source_file_ = filename;
+    device_name_ = device;
     m_thread->setDevice(device);
     m_thread->setFileName(filename);
     m_thread->start();
@@ -51,6 +69,7 @@ void VideoWidget::slotStop()
     m_thread->prepareExit();
     m_thread->quit();
     m_thread->wait();
+    m_state_ = Stopped;
 }
 
 void VideoWidget::resizeGL(int w, int h)

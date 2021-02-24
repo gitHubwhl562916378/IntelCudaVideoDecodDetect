@@ -9,6 +9,7 @@
 #include "libavutil/imgutils.h"
 }
 #include <QDateTime>
+#include <QDebug>
 #include "../renderthread.h"
 #include "ffmpegcpudecode.h"
 
@@ -26,11 +27,7 @@ FFmpegCpuDecode::~FFmpegCpuDecode()
         av_free(buffer_);
         buffer_ = nullptr;
     }
-
-    if(render_)
-    {
-        thread()->Render([&](){delete render_;});
-    }
+    qDebug() << "FFmpegCpuDecode::~FFmpegCpuDecode()";
 }
 
 void FFmpegCpuDecode::decode(const QString &url)
@@ -98,14 +95,18 @@ void FFmpegCpuDecode::decode(const QString &url)
         goto  END;
     }
 
-    int vden = video->avg_frame_rate.den,vnum = video->avg_frame_rate.num;
-    if(vden <= 0)
+    if(pCodecCtx->pix_fmt < 0)
     {
-        errorMsg = "get fps failed";
+        errorMsg = "unknow pixformat";
         thread()->sigError(errorMsg);
         goto  END;
     }
-    thread()->sigFps(vnum/vden);
+
+    int vden = video->avg_frame_rate.den,vnum = video->avg_frame_rate.num;
+    if(vden > 0)
+    {
+        thread()->sigFps(vnum/vden);
+    }
     stream_time_base_ = video->time_base;
 
     ///打开解码器
@@ -123,12 +124,6 @@ void FFmpegCpuDecode::decode(const QString &url)
     {
         if ((ret = av_read_frame(pFormatCtx, &packet)) < 0)
         {
-            if(ret != AVERROR_EOF)
-            {
-                av_strerror(ret, errorbuf, sizeof(errorbuf));
-                errorMsg = errorbuf;
-                thread()->sigError(errorMsg);
-            }
             break; //这里认为视频读取完了
         }
 
@@ -153,8 +148,14 @@ void FFmpegCpuDecode::decode(const QString &url)
     }
     packet.data = nullptr;
     packet.size = 0;
-    ret = decode_packet(pCodecCtx, &packet, pFrame);
+//    ret = decode_packet(pCodecCtx, &packet, pFrame);
 
+    thread()->sigCurFpsChanged(0);
+    if(!thread()->isInterruptionRequested()){
+        if(url.left(4) == "rtsp"){
+            thread()->sigError("AVERROR_EOF");
+        }
+    }
 END:
     if(pFrame)
     {
@@ -168,7 +169,6 @@ END:
     {
         avformat_close_input(&pFormatCtx);
     }
-    thread()->sigCurFpsChanged(0);
 }
 
 int FFmpegCpuDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet, AVFrame *pFrame)
@@ -202,11 +202,11 @@ int FFmpegCpuDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet, 
             {
                 render_ = thread()->getRender(pFrame->format);
                 render_->initialize(pFrame->width, pFrame->height);
+                thread()->sigVideoStarted(pFrame->width, pFrame->height);
             }
-            render_->render(pFrame->data, pFrame->linesize, pFrame->width, pFrame->height);
+            render_->upLoad(pFrame->data, pFrame->linesize, pFrame->width, pFrame->height);
         });
 #else
-
 //        pFrame->pts =  pFrame->best_effort_timestamp;
 //        if(pFrame->pts != AV_NOPTS_VALUE)
 //        {
@@ -240,8 +240,9 @@ int FFmpegCpuDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet, 
             {
                 render_ = thread()->getRender(pFrame->format);
                 render_->initialize(pFrame->width, pFrame->height);
+                thread()->sigVideoStarted(pFrame->width, pFrame->height);
             }
-            render_->render(buffer_, pFrame->width, pFrame->height);
+            render_->upLoad(buffer_, pFrame->width, pFrame->height);
         });
 #endif
 

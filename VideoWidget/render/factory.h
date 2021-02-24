@@ -2,6 +2,7 @@
 #define FACTORY_H
 
 #include <map>
+#include <functional>
 template <class IdentifierType, class ProductType>
 class DefaultFactoryError
 {
@@ -37,7 +38,7 @@ template
 <
     class AbstractProduct,
     class IdentifierType,
-    class ProductCreator = AbstractProduct* (*)(),
+    class ProductCreator = std::function<AbstractProduct*(void)>,
     template<typename, class>
         class FactoryErrorPolicy = DefaultFactoryError
 >

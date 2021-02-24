@@ -11,6 +11,7 @@ extern "C"
 #include "libavformat/avformat.h"
 }
 #include <QDateTime>
+#include <QDebug>
 #include "../renderthread.h"
 #include "nvidiadecode.h"
 
@@ -24,34 +25,33 @@ NvidiaDecode::NvidiaDecode(DecodeTaskManagerImpl *taskManger, CreateDecoderFunc 
 
 NvidiaDecode::~NvidiaDecode()
 {
-    if(render_)
-    {
-        thread()->Render([&](){delete render_;});
+    qDebug() << "NvidiaDecode::~NvidiaDecode()";
+    if(decoder_){
+        delete decoder_;
+        decoder_ = nullptr;
     }
 }
-#include <QDebug>
+
+extern CreateDecoderFunc g_gpurender_fuc_;
 void NvidiaDecode::decode(const QString &url)
 {
     if(!createDecoderFunc_){
         return;
     }
 
-    if(decoder_){
-        delete decoder_;
-        decoder_ = nullptr;
-    }
     decoder_ = createDecoderFunc_();
     if(!decoder_){
         return;
     }
+    std::string error;
     decoder_->decode(url.toStdString().data(), true, [&](void* ptr, const int pix, const int width, const int height, const std::string &err){
         if(thread()->isInterruptionRequested()){
             decoder_->stop();
         }
+        error = err;
         if(!err.empty())
         {
             thread()->sigError(QString::fromStdString(err));
-            qDebug() << QString::fromStdString(err);
         }
         if(pix != AV_PIX_FMT_NV12){
             return;
@@ -73,12 +73,22 @@ void NvidiaDecode::decode(const QString &url)
         thread()->Render([&](){
             if(!render_)
             {
+                thread()->setExtraData(decoder_->context());
                 render_ = thread()->getRender(AV_PIX_FMT_CUDA);
                 render_->initialize(width, height);
-                thread()->sigFps(decoder_->fps());
+                if(decoder_->fps())
+                {
+                    thread()->sigFps(decoder_->fps());
+                }
                 thread()->sigVideoStarted(width, height);
             }
-            render_->render(reinterpret_cast<unsigned char*>(ptr), width, height);
+            render_->upLoad(reinterpret_cast<unsigned char*>(ptr), width, height);
         });
     });
+
+    if(!thread()->isInterruptionRequested()){
+        if(url.left(4) == "rtsp" && error.empty()){
+            thread()->sigError("AVERROR_EOF");
+        }
+    }
 }

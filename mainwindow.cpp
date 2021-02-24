@@ -40,7 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     for(int i = 0; i < 5; i++)
     {
-        for(int j = 0; j < 5; j++)
+        for(int j = 0; j < 4; j++)
         {
             QLabel *fpsL = new QLabel;
             QPalette pal = fpsL->palette();

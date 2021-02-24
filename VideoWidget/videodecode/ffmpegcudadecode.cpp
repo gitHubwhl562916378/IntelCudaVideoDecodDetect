@@ -9,6 +9,7 @@
 #include "libavutil/imgutils.h"
 }
 #include <QDateTime>
+#include <QDebug>
 #include "../renderthread.h"
 #include "ffmpegcudadecode.h"
 
@@ -25,11 +26,7 @@ FFmpegCudaDecode::~FFmpegCudaDecode()
         av_free(buffer_);
         buffer_ = nullptr;
     }
-
-    if(render_)
-    {
-        thread()->Render([&](){delete render_;});
-    }
+    qDebug() << "FFmpegCudaDecode::~FFmpegCudaDecode()";
 }
 
 void FFmpegCudaDecode::decode(const QString &url)
@@ -116,14 +113,18 @@ void FFmpegCudaDecode::decode(const QString &url)
         goto  END;
     }
 
-    int vden = video->avg_frame_rate.den,vnum = video->avg_frame_rate.num;
-    if(vden <= 0)
+    if(pCodecCtx->pix_fmt < 0)
     {
-        errorMsg = "get fps failed";
+        errorMsg = "unknow pixformat";
         thread()->sigError(errorMsg);
         goto  END;
     }
-    thread()->sigFps(vnum/vden);
+
+    int vden = video->avg_frame_rate.den,vnum = video->avg_frame_rate.num;
+    if(vden > 0)
+    {
+        thread()->sigFps(vnum/vden);
+    }
     stream_time_base_ = video->time_base;
 
     pCodecCtx->get_format = get_cuda_hw_format;
@@ -152,12 +153,6 @@ void FFmpegCudaDecode::decode(const QString &url)
     {
         if ((ret = av_read_frame(pFormatCtx, &packet)) < 0)
         {
-            if(ret != AVERROR_EOF)
-            {
-                av_strerror(ret, errorbuf, sizeof(errorbuf));
-                errorMsg = errorbuf;
-                thread()->sigError(errorMsg);
-            }
             break; //这里认为视频读取完了
         }
 
@@ -182,8 +177,14 @@ void FFmpegCudaDecode::decode(const QString &url)
     }
     packet.data = nullptr;
     packet.size = 0;
-    ret = decode_packet(pCodecCtx, &packet, pFrame, swFrame);
+//    ret = decode_packet(pCodecCtx, &packet, pFrame, swFrame);
 
+    thread()->sigCurFpsChanged(0);
+    if(!thread()->isInterruptionRequested()){
+        if(url.left(4) == "rtsp"){
+            thread()->sigError("AVERROR_EOF");
+        }
+    }
 END:
     if(pFrame)
     {
@@ -201,7 +202,6 @@ END:
     {
         avformat_close_input(&pFormatCtx);
     }
-    thread()->sigCurFpsChanged(0);
 }
 
 int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet, AVFrame *pFrame, AVFrame *swFrame)
@@ -233,10 +233,12 @@ int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet,
         thread()->Render([&](){
             if(!render_)
             {
+                thread()->setExtraData(nullptr);
                 render_ = thread()->getRender(pFrame->format);
                 render_->initialize(pFrame->width, pFrame->height);
+                thread()->sigVideoStarted(pFrame->width, pFrame->height);
             }
-            render_->render(pFrame->data, pFrame->linesize, pFrame->width, pFrame->height);
+            render_->upLoad(pFrame->data, pFrame->linesize, pFrame->width, pFrame->height);
         });
 #else
         //gpu拷贝到cpu，相对耗时
@@ -281,8 +283,9 @@ int FFmpegCudaDecode::decode_packet(AVCodecContext *pCodecCtx, AVPacket *packet,
             {
                 render_ = thread()->getRender(swFrame->format);
                 render_->initialize(swFrame->width, swFrame->height);
+                thread()->sigVideoStarted(pFrame->width, pFrame->height);
             }
-            render_->render(buffer_, swFrame->width, swFrame->height);
+            render_->upLoad(buffer_, swFrame->width, swFrame->height);
         });
 #endif
 
